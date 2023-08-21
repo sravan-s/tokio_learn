@@ -1,7 +1,6 @@
 ## Simple Broadcast Channel
 
 - Server `cargo run --bin server`
-    - Filter self message
     - Implement topic/channel-id
     - Send Meta info - define reply format(JSON/Proto?)
 - Client
