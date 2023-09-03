@@ -26,6 +26,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut set = JoinSet::new();
 
+    // recieve messages
     {
         let server = server.clone();
         set.spawn(async move {
@@ -44,15 +45,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         });
     }
 
+    // send messages
     {
         let server = server.clone();
+        let username = username.to_string().clone();
+        let id = id.to_string().clone();
         set.spawn(async move {
             let mut reader = TcpStream::connect(server).await.unwrap();
             let (_reader, mut writer) = reader.split();
             loop {
                 let mut buf = String::new();
                 std::io::stdin().read_line(&mut buf).unwrap();
-                writer.write_all(buf.as_bytes()).await.unwrap();
+                let msg = Message::new(username.to_string(), id.to_string(), buf);
+                let msg = msg.to_string();
+                println!("sending: {}", msg);
+                writer.write_all(msg.as_bytes()).await.unwrap();
             }
         });
     }

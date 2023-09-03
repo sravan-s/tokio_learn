@@ -65,32 +65,34 @@ async fn main() -> io::Result<()> {
             let id = Uuid::new_v4().to_string();
             let name = id.to_string();
             let mut user = Client::new(id, name, reader, my_internal_sender, my_internal_receiver);
-            let cloned_user = user.to_serialized();
             println!("new user connected {} {}", user.name, user.id);
             // listen to broadcast channel and send to tcp stream
             tokio::spawn(async move {
                 loop {
                     let msg = user.broadcast_reciever.recv().await.unwrap();
                     println!("broadcast message received for: {}", user.name);
-                    let msg = Message::new(user.name.clone(), user.id.clone(), msg);
                     user.ext_writer
                         .write_all(msg.to_string().as_bytes())
                         .await
                         .unwrap();
                 }
             });
+            // read from tcp stream and send to broadcast channel
             loop {
                 let mut buf = vec![0u8; 1024];
                 let n = user.ext_reader.read(&mut buf).await.unwrap();
-                let msg = String::from_utf8(buf[0..n].to_vec()).unwrap();
+                let msg_buf = String::from_utf8(buf[0..n].to_vec()).unwrap();
+                let message = Message::from_string(msg_buf);
                 if n == 0 {
                     break;
                 }
-                println!("TCP message from: {}", cloned_user.name.clone());
-                let now = Utc::now().timestamp();
-                let message = Message::new(cloned_user.name.clone(), now.to_string(), msg);
+                println!("From socket - message: {}", message.to_string());
+                if message.is_login() {
+                    let serialized_msg = message.pretty_logged_in();
+                    user.broadcast_sender.send(serialized_msg).unwrap();
+                    continue;
+                }
                 let serialized_msg = message.to_string();
-                println!("broadcasting message {}", serialized_msg);
                 user.broadcast_sender.send(serialized_msg).unwrap();
             }
         });
