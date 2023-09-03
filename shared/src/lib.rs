@@ -1,76 +1,48 @@
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+pub struct Config {
+    pub server: String,
+    pub port: String,
+}
+
+impl Config {
+    pub fn default() -> Self {
+        Self {
+            server: "127.0.0.1".to_string(),
+            port: "8080".to_string(),
+        }
+    }
+}
 
 pub struct Message {
-    id: i64,
-    msg: String,
-    from: String,
+    pub username: String,
+    pub id: String,
+    pub msg: String,
 }
 
 impl Message {
-    pub fn new(id: i64, msg: String, from: String) -> Message {
-        Message { id, msg, from }
+    // I know these delimiters are not the best, but I'm lazy
+    // Donot want to bring in serde or any other dependency
+    pub fn to_string(&self) -> String {
+        format!("{}:{}:{}", self.username, self.id, self.msg)
     }
-
-    pub fn serialize(&self) -> String {
-        format!("{}:{}:{}", self.id, self.msg, self.from)
+    pub fn new(username: String, id: String, msg: String) -> Self {
+        Self { username, id, msg }
     }
-
-    pub fn deserialize(msg: String) -> Message {
-        let mut parts = msg.split(":");
-        let id = parts.next().unwrap().parse::<i64>().unwrap();
-        let msg = parts.next().unwrap().to_string();
-        let from = parts.next().unwrap().to_string();
-        Message { id, msg, from }
+    pub fn from_string(msg: String) -> Self {
+        let mut split = msg.split(':');
+        let user = split.next().unwrap();
+        let username = match user {
+            "0" => "Admin".to_string(),
+            _ => user.to_string(),
+        };
+        let id = split.next().unwrap().to_string();
+        let msg = split.next().unwrap().to_string();
+        Self { username, id, msg }
     }
-}
-
-pub struct SerializedClient {
-    id: String,
-    name: String,
-}
-
-pub struct Client {
-    id: String,
-    name: String,
-    ext_writer: OwnedWriteHalf,
-    ext_reader: OwnedReadHalf,
-    broadcast_sender: broadcast::Sender<String>,
-    broadcast_reciever: broadcast::Receiver<String>,
-}
-impl Client {
-    fn new(
-        id: String,
-        name: String,
-        stream: TcpStream,
-        broadcast_sender: Sender<String>,
-        broadcast_reciever: Receiver<String>,
-    ) -> Client {
-        let (ext_reader, ext_writer) = stream.into_split();
-        Client {
-            id,
-            name,
-            ext_reader,
-            ext_writer,
-            broadcast_sender,
-            broadcast_reciever,
-        }
-    }
-
-    fn to_serialized(&self) -> SerializedClient {
-        SerializedClient {
-            id: self.id.clone(),
-            name: self.name.clone(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    pub fn pretty_print(&self) -> String {
+        let username = match self.id.as_str() {
+            "0" => format!("{} (Admin)", self.username),
+            _ => self.username.clone(),
+        };
+        format!("{}: {}", username, self.msg)
     }
 }

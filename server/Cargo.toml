@@ -14,3 +14,5 @@ uuid = { version = "1.4.1", features = [
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]}
+shared = { path = "../shared" }
+

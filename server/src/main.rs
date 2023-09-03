@@ -1,35 +1,11 @@
 use chrono::Utc;
+use shared::Message;
 use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use uuid::Uuid;
-
-struct Message {
-    id: i64,
-    msg: String,
-    from: String,
-}
-
-impl Message {
-    fn new(id: i64, msg: String, from: String) -> Message {
-        Message { id, msg, from }
-    }
-
-    fn serialize(&self) -> String {
-        format!("{}:{}:{}", self.id, self.msg, self.from)
-    }
-
-    fn deserialize(msg: String) -> Message {
-        let mut parts = msg.split(":");
-        let id = parts.next().unwrap().parse::<i64>().unwrap();
-        let msg = parts.next().unwrap().to_string();
-        let from = parts.next().unwrap().to_string();
-        Message { id, msg, from }
-    }
-}
-
 struct SerializedClient {
     id: String,
     name: String,
@@ -80,7 +56,7 @@ async fn main() -> io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     loop {
         // someone connected
-        let (mut reader, _address) = listener.accept().await?;
+        let (reader, _address) = listener.accept().await?;
         let my_internal_sender = sender.clone();
         let my_internal_receiver = my_internal_sender.subscribe();
         // we spawn a new task to handle the connection
@@ -96,13 +72,11 @@ async fn main() -> io::Result<()> {
                 loop {
                     let msg = user.broadcast_reciever.recv().await.unwrap();
                     println!("broadcast message received for: {}", user.name);
-                    let msg = Message::deserialize(msg);
-                    if msg.from != user.id {
-                        user.ext_writer
-                            .write_all(msg.serialize().as_bytes())
-                            .await
-                            .unwrap();
-                    }
+                    let msg = Message::new(user.name.clone(), user.id.clone(), msg);
+                    user.ext_writer
+                        .write_all(msg.to_string().as_bytes())
+                        .await
+                        .unwrap();
                 }
             });
             loop {
@@ -114,8 +88,8 @@ async fn main() -> io::Result<()> {
                 }
                 println!("TCP message from: {}", cloned_user.name.clone());
                 let now = Utc::now().timestamp();
-                let message = Message::new(now, msg.trim().to_string(), cloned_user.id.clone());
-                let serialized_msg = message.serialize();
+                let message = Message::new(cloned_user.name.clone(), now.to_string(), msg);
+                let serialized_msg = message.to_string();
                 println!("broadcasting message {}", serialized_msg);
                 user.broadcast_sender.send(serialized_msg).unwrap();
             }

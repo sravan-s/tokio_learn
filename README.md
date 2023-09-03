@@ -9,6 +9,7 @@
 ### How to run?
 
 * Run server with `cargo run --bin server`
-* Open two telnet connections `telnet localhost 8080`
+* Run client with `cargo run --bin client`
+    * or open telnet connection `telnet localhost 8080`
 * Try sending messages ~
 
