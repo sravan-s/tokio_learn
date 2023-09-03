@@ -85,7 +85,7 @@ async fn main() -> io::Result<()> {
         let my_internal_receiver = my_internal_sender.subscribe();
         // we spawn a new task to handle the connection
         tokio::spawn(async move {
-            // create and set up user
+            // create and set up user -> read from message
             let id = Uuid::new_v4().to_string();
             let name = id.to_string();
             let mut user = Client::new(id, name, reader, my_internal_sender, my_internal_receiver);

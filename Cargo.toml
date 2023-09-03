@@ -3,6 +3,6 @@
 members = [
   "server",
   "client",
-  "auth",
+  "shared",
 ]
 
