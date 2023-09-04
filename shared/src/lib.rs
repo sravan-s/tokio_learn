@@ -1,3 +1,5 @@
+use std::fmt;
+
 const ADMIN_ID: &str = "0";
 pub struct Config {
     pub server: String,
@@ -13,10 +15,17 @@ impl Config {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Message {
     pub username: String,
     pub id: String,
     pub msg: String,
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, {}, {})", self.username, self.id, self.msg)
+    }
 }
 
 impl Message {
@@ -38,7 +47,7 @@ impl Message {
             _ => user.to_string(),
         };
         let id = split.next().unwrap().to_string();
-        let msg = split.next().unwrap().to_string();
+        let msg = split.next().unwrap().trim().to_string();
         Self { username, id, msg }
     }
     pub fn pretty_print(&self) -> String {
@@ -52,7 +61,13 @@ impl Message {
     pub fn login(username: String, id: String) -> Self {
         Self::new(username, id, "$$login".to_string())
     }
+    pub fn logout(username: String, id: String) -> Self {
+        Self::new(username, id, "$$logout".to_string())
+    }
 
+    pub fn is_logout(&self) -> bool {
+        self.msg == "$$logout"
+    }
     pub fn is_login(&self) -> bool {
         self.msg == "$$login"
     }

@@ -1,100 +1,138 @@
-use chrono::Utc;
-use shared::Message;
+use shared::{Config, Message};
 use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::broadcast::{self, Receiver, Sender};
+use tokio::net::TcpListener;
+use tokio::sync::broadcast::{self};
+use tokio::task::JoinSet;
 use uuid::Uuid;
-struct SerializedClient {
-    id: String,
-    name: String,
-}
-
-struct Client {
-    id: String,
-    name: String,
-    ext_writer: OwnedWriteHalf,
-    ext_reader: OwnedReadHalf,
-    broadcast_sender: broadcast::Sender<String>,
-    broadcast_reciever: broadcast::Receiver<String>,
-}
-
-impl Client {
-    fn new(
-        id: String,
-        name: String,
-        stream: TcpStream,
-        broadcast_sender: Sender<String>,
-        broadcast_reciever: Receiver<String>,
-    ) -> Client {
-        let (ext_reader, ext_writer) = stream.into_split();
-        Client {
-            id,
-            name,
-            ext_reader,
-            ext_writer,
-            broadcast_sender,
-            broadcast_reciever,
-        }
-    }
-
-    fn to_serialized(&self) -> SerializedClient {
-        SerializedClient {
-            id: self.id.clone(),
-            name: self.name.clone(),
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    // common broadcast channel
-    let (sender, _) = broadcast::channel::<String>(10);
+    // setting up server
+    let config = Config::default();
+    let address = format!("{}:{}", config.server, config.port);
+    let listener = match TcpListener::bind(address).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Failed to bind to address: {}", e);
+            return Ok(());
+        }
+    };
+    // end-settingup server
+    //
+    // setting up broadcast channels
+    let (tx, _rx) = broadcast::channel::<Message>(64000);
 
-    // listens to port
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
-    loop {
-        // someone connected
-        let (reader, _address) = listener.accept().await?;
-        let my_internal_sender = sender.clone();
-        let my_internal_receiver = my_internal_sender.subscribe();
-        // we spawn a new task to handle the connection
-        tokio::spawn(async move {
-            // create and set up user -> read from message
-            let id = Uuid::new_v4().to_string();
-            let name = id.to_string();
-            let mut user = Client::new(id, name, reader, my_internal_sender, my_internal_receiver);
-            println!("new user connected {} {}", user.name, user.id);
-            // listen to broadcast channel and send to tcp stream
-            tokio::spawn(async move {
-                loop {
-                    let msg = user.broadcast_reciever.recv().await.unwrap();
-                    println!("broadcast message received for: {}", user.name);
-                    user.ext_writer
-                        .write_all(msg.to_string().as_bytes())
-                        .await
-                        .unwrap();
-                }
-            });
-            // read from tcp stream and send to broadcast channel
+    'outer: loop {
+        let mut set = JoinSet::new();
+
+        let (my_socket, _) = listener.accept().await?;
+        let (mut my_sock_rx, mut my_sock_tx) = my_socket.into_split();
+        let my_tx = tx.clone();
+        let mut my_rx = tx.subscribe();
+
+        set.spawn(async move {
+            let mut logged_in = false;
             loop {
-                let mut buf = vec![0u8; 1024];
-                let n = user.ext_reader.read(&mut buf).await.unwrap();
-                let msg_buf = String::from_utf8(buf[0..n].to_vec()).unwrap();
-                let message = Message::from_string(msg_buf);
-                if n == 0 {
-                    break;
-                }
-                println!("From socket - message: {}", message.to_string());
-                if message.is_login() {
-                    let serialized_msg = message.pretty_logged_in();
-                    user.broadcast_sender.send(serialized_msg).unwrap();
+                println!("In listener loop");
+                let mut buf = vec![0; 1024];
+                let n = match my_sock_rx.read(&mut buf).await {
+                    Ok(n) => {
+                        if n == 0 {
+                            return;
+                        }
+                        n
+                    }
+                    Err(_) => {
+                        eprintln!("Failed to read from socket");
+                        return;
+                    }
+                };
+                let message = match String::from_utf8(buf[..n].to_vec()) {
+                    Ok(m) => Message::from_string(m.to_string()),
+                    Err(_) => {
+                        eprintln!("Failed to parse message");
+                        return;
+                    }
+                };
+                if !logged_in && message.is_login() {
+                    println!("Received login message, {}", message);
+                    let m = Message::new(
+                        message.username.clone(),
+                        Uuid::new_v4().to_string(),
+                        "has joined the chat".to_string(),
+                    );
+
+                    let _ = match my_tx.send(m) {
+                        Ok(_) => {
+                            logged_in = true;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to send message @69 {}", e);
+                            return;
+                        }
+                    };
                     continue;
                 }
-                let serialized_msg = message.to_string();
-                user.broadcast_sender.send(serialized_msg).unwrap();
+                if message.is_logout() && logged_in {
+                    let id = message.id.clone();
+                    let username = message.username.clone();
+                    let msg = format!("{} has left the chat", username);
+                    let message = Message::new(username, id, msg);
+
+                    let _ = match my_tx.send(message) {
+                        Ok(_) => {
+                            logged_in = false;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to send message {}", e);
+                            return;
+                        }
+                    };
+                    continue;
+                }
+
+                if logged_in {
+                    let id = message.id.clone();
+                    let username = message.username.clone();
+                    let msg = message.msg.clone();
+                    let message = Message::new(username, id, msg);
+                    println!("Received message: {}", message);
+                    my_tx.send(message).unwrap();
+                    continue;
+                }
             }
         });
+
+        set.spawn(async move {
+            loop {
+                println!("Waiting for broadcast message");
+                let internal_message = match my_rx.recv().await {
+                    Ok(m) => m.to_string(),
+                    Err(e) => {
+                        eprintln!("Failed to receive message @111 {}", e);
+                        return;
+                    }
+                };
+                println!("broadcast received: internal_message{}", internal_message);
+
+                let _n = match my_sock_tx.write(internal_message.as_bytes()).await {
+                    Ok(n) => {
+                        println!("wrote to socket {}", n);
+                        n
+                    }
+                    Err(_) => {
+                        eprintln!("Failed to write to socket");
+                        return;
+                    }
+                };
+            }
+        });
+
+        while let Some(res) = set.join_next().await {
+            println!("Task finished with result {:?}", res);
+            break 'outer;
+        }
     }
+    Ok(())
 }
