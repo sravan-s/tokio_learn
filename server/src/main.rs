@@ -4,6 +4,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast::{self};
+use tokio::sync::Mutex;
 use tokio::task::JoinError;
 use uuid::Uuid;
 
@@ -19,9 +20,9 @@ async fn listen_task(
     my_tx: broadcast::Sender<Message>,
 ) -> Result<ThreadResult, JoinError> {
     let task = tokio::spawn(async move {
-        let mut logged_in = false;
+        let mut mutex_logged_in = Mutex::new(false);
         loop {
-            println!("In listener loop");
+            let mut logged_in = mutex_logged_in.lock().await;
             let mut buf = vec![0; 1024];
             let n = match my_sock_rx.read(&mut buf).await {
                 Ok(n) => {
@@ -50,7 +51,7 @@ async fn listen_task(
             }
 
             // Login message
-            if !logged_in && message.is_login() {
+            if !*logged_in && message.is_login() {
                 println!("Received login message, {}", message);
                 let m = Message::new(
                     message.username.clone(),
@@ -60,46 +61,44 @@ async fn listen_task(
 
                 let _ = match my_tx.send(m) {
                     Ok(_) => {
-                        logged_in = true;
+                        println!("Changing logged_in to true");
+                        *logged_in = true;
                     }
                     Err(e) => {
                         eprintln!("Failed to send message @69 {}", e);
                         return ThreadResult::Err;
                     }
                 };
-                println!("logged in: {}", logged_in);
+                println!("{}: logged in: {}", message.username, logged_in);
                 continue;
             }
 
             // Logout message
-            if message.is_logout() && logged_in {
+            if message.is_logout() && *logged_in {
                 let id = message.id.clone();
                 let username = message.username.clone();
                 let msg = format!("{} has left the chat", username);
                 let message = Message::new(username, id, msg);
 
                 let _ = match my_tx.send(message) {
-                    Ok(_) => {
-                        logged_in = false;
-                    }
                     Err(e) => {
                         eprintln!("Failed to send message {}", e);
                         return ThreadResult::Err;
                     }
+                    _ => {}
                 };
-                continue;
+                return ThreadResult::Logout;
             }
 
+            println!("logged in: {}, line 92", logged_in);
             // normal message && logged in
-            if logged_in {
-                let id = message.id.clone();
-                let username = message.username.clone();
-                let msg = message.msg.clone();
-                let message = Message::new(username, id, msg);
-                println!("Received message: {}", message);
-                my_tx.send(message).unwrap();
-                continue;
-            }
+            let id = message.id.clone();
+            let username = message.username.clone();
+            let msg = message.msg.clone();
+            let message = Message::new(username, id, msg);
+            println!("Received message: {}", message);
+            my_tx.send(message).unwrap();
+            continue;
         }
     });
     task.await
