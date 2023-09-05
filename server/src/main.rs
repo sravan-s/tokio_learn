@@ -5,7 +5,6 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast::{self};
 use tokio::task::JoinError;
-use uuid::Uuid;
 
 #[derive(Debug)]
 enum ThreadResult {
@@ -44,6 +43,9 @@ async fn listen_task(
                 }
             };
 
+            // maybe -> later filter by ID :)
+            // Also keep list of IDs in mutex and check if ID is duplicate
+
             // Shutdown message
             if message.is_shutdown() {
                 println!("Received shutdown message, {}", message);
@@ -54,7 +56,7 @@ async fn listen_task(
             if !logged_in && message.is_login() {
                 let m = Message::new(
                     message.username.clone(),
-                    Uuid::new_v4().to_string(),
+                    message.id.clone(),
                     "has joined the chat".to_string(),
                 );
 
