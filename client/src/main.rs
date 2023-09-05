@@ -4,14 +4,15 @@ use std::error::Error;
 
 use tokio::{
     io::{stdin, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    net::TcpStream,
+    net::{
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+        TcpStream,
+    },
     task::JoinError,
 };
 
-async fn recieve_messages(server: String) -> Result<(), JoinError> {
+async fn recieve_messages(mut reader: OwnedReadHalf) -> Result<(), JoinError> {
     let task = tokio::spawn(async move {
-        let mut reader = TcpStream::connect(server).await.unwrap();
-        let (mut reader, _writer) = reader.split();
         loop {
             let mut buf = [0; 1024];
             let n = match reader.read(&mut buf).await {
@@ -35,10 +36,12 @@ async fn recieve_messages(server: String) -> Result<(), JoinError> {
     task.await
 }
 
-async fn send_messages(server: String, username: String, id: String) -> Result<(), JoinError> {
+async fn send_messages(
+    mut writer: OwnedWriteHalf,
+    username: String,
+    id: String,
+) -> Result<(), JoinError> {
     let task = tokio::spawn(async move {
-        let mut reader = TcpStream::connect(server).await.unwrap();
-        let (_reader, mut writer) = reader.split();
         loop {
             let mut line = String::new();
             let stdin = stdin();
@@ -73,16 +76,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let id = id.trim();
 
     let login = Message::login(username.to_string(), id.to_string()).to_string();
-    let mut stream = TcpStream::connect(server.clone()).await?;
-    stream.write_all(login.as_bytes()).await?;
+    let stream = TcpStream::connect(server.clone()).await?;
+    let (reader, mut writer) = stream.into_split();
+    writer.write_all(login.as_bytes()).await?;
 
     loop {
         tokio::select! {
-            e = recieve_messages(server.clone()) => {
+            e = recieve_messages(reader) => {
                 println!("Server disconnected {:?}", e);
                 break;
             }
-            e = send_messages(server.clone(), username.to_string(), id.to_string()) => {
+            e = send_messages(writer, username.to_string(), id.to_string()) => {
                 println!("Client closed {:?}", e);
                 break;
             }

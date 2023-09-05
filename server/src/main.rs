@@ -4,7 +4,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast::{self};
-use tokio::sync::Mutex;
 use tokio::task::JoinError;
 use uuid::Uuid;
 
@@ -20,9 +19,10 @@ async fn listen_task(
     my_tx: broadcast::Sender<Message>,
 ) -> Result<ThreadResult, JoinError> {
     let task = tokio::spawn(async move {
-        let mut mutex_logged_in = Mutex::new(false);
+        let mut logged_in = false;
+        println!("logged in, line 23, {:?}", logged_in);
         loop {
-            let mut logged_in = mutex_logged_in.lock().await;
+            println!("Waiting for message 25 logged in: {:?}", logged_in);
             let mut buf = vec![0; 1024];
             let n = match my_sock_rx.read(&mut buf).await {
                 Ok(n) => {
@@ -51,8 +51,7 @@ async fn listen_task(
             }
 
             // Login message
-            if !*logged_in && message.is_login() {
-                println!("Received login message, {}", message);
+            if !logged_in && message.is_login() {
                 let m = Message::new(
                     message.username.clone(),
                     Uuid::new_v4().to_string(),
@@ -61,20 +60,19 @@ async fn listen_task(
 
                 let _ = match my_tx.send(m) {
                     Ok(_) => {
-                        println!("Changing logged_in to true");
-                        *logged_in = true;
+                        logged_in = true;
                     }
                     Err(e) => {
                         eprintln!("Failed to send message @69 {}", e);
                         return ThreadResult::Err;
                     }
                 };
-                println!("{}: logged in: {}", message.username, logged_in);
+                println!("logged in: {}, line 72, calling continue", logged_in);
                 continue;
             }
 
             // Logout message
-            if message.is_logout() && *logged_in {
+            if message.is_logout() && logged_in {
                 let id = message.id.clone();
                 let username = message.username.clone();
                 let msg = format!("{} has left the chat", username);
@@ -96,11 +94,11 @@ async fn listen_task(
             let username = message.username.clone();
             let msg = message.msg.clone();
             let message = Message::new(username, id, msg);
-            println!("Received message: {}", message);
             my_tx.send(message).unwrap();
             continue;
         }
     });
+    println!("listen_task finished");
     task.await
 }
 
@@ -110,24 +108,16 @@ async fn transmit_taask(
 ) -> Result<ThreadResult, JoinError> {
     let task = tokio::spawn(async move {
         loop {
-            println!("Waiting for broadcast message");
             let internal_message = match my_rx.recv().await {
-                Ok(m) => {
-                    println!("broadcast received: {}", m);
-                    m.to_string()
-                }
+                Ok(m) => m.to_string(),
                 Err(e) => {
                     eprintln!("Failed to receive message @111 {}", e);
                     return ThreadResult::Err;
                 }
             };
-            println!("broadcast received: internal_message{}", internal_message);
 
             let _n = match my_sock_tx.write(internal_message.as_bytes()).await {
-                Ok(n) => {
-                    println!("wrote to socket {}", n);
-                    n
-                }
+                Ok(n) => n,
                 Err(_) => {
                     eprintln!("Failed to write to socket");
                     return ThreadResult::Err;
@@ -148,7 +138,6 @@ async fn connect_client(
     let transmit = transmit_taask(my_sock_tx, my_rx);
     tokio::select! {
         rtrn = listen => {
-            println!("listen_task finished");
             match rtrn {
                 Ok(ThreadResult::Shutdown) => {
                     // todo: send shutdown message to all clients
@@ -190,10 +179,10 @@ async fn main() -> io::Result<()> {
 
     loop {
         let (my_socket, _) = listener.accept().await?;
+        println!("loop @181 {:?}", my_socket);
         let (my_sock_rx, my_sock_tx) = my_socket.into_split();
         let my_tx = tx.clone();
         let my_rx = tx.subscribe();
-
         tokio::spawn(async move {
             connect_client(my_sock_rx, my_sock_tx, my_tx, my_rx).await;
         });
