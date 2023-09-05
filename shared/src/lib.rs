@@ -58,9 +58,14 @@ impl Message {
         format!("{}: {}", username, self.msg)
     }
 
-    pub fn login(username: String, id: String) -> Self {
-        Self::new(username, id, "$$login".to_string())
+    pub fn shutdown(username: String, id: String) -> Self {
+        Self::new(username, id, "$$shutdown".to_string())
     }
+
+    pub fn is_shutdown(&self) -> bool {
+        self.msg == "$$shutdown"
+    }
+
     pub fn logout(username: String, id: String) -> Self {
         Self::new(username, id, "$$logout".to_string())
     }
@@ -68,6 +73,11 @@ impl Message {
     pub fn is_logout(&self) -> bool {
         self.msg == "$$logout"
     }
+
+    pub fn login(username: String, id: String) -> Self {
+        Self::new(username, id, "$$login".to_string())
+    }
+
     pub fn is_login(&self) -> bool {
         self.msg == "$$login"
     }
