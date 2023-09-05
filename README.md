@@ -11,6 +11,14 @@
     * or open telnet connection `telnet localhost 8080`
 * Try sending messages ~
 
+--- OR ----
+
+If you have TMUXINATOR installed
+```bash
+tmuxinator
+
+```
+
 ## To do:
 - Graceful shutdown
 
